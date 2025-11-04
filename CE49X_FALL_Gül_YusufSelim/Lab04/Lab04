@@ -1,0 +1,671 @@
+"""
+Lab 4: Statistical Analysis
+Descriptive Statistics and Probability Distributions
+CE49X Fall 2025
+
+This script performs statistical analysis on engineering datasets, covering:
+1. Descriptive Statistics (Task 1)
+2. Comparative Analysis (Task 2)
+3. Probability Modeling (Task 3)
+4. Bayesian Analysis (Task 4)
+5. Distribution Fitting (Task 5)
+6. Visualization and Reporting
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy import stats
+from scipy.stats import norm, binom, poisson, expon
+import os
+import warnings
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings('ignore')
+
+# --- Constants ---
+# Resolve paths relative to this file so it works on any machine
+CURRENT_DIR = os.path.dirname(__file__)
+REPO_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, '..'))
+DATA_DIR = os.path.join(REPO_ROOT, 'datasets')
+OUTPUT_DIR = CURRENT_DIR  # Save outputs alongside this script
+
+# File names
+CONCRETE_FILE = 'concrete_strength.csv'
+MATERIAL_FILE = 'material_properties.csv'
+LOADS_FILE = 'structural_loads.csv'
+
+# Column names
+CONCRETE_STRENGTH_COL = 'strength_mpa'
+MATERIAL_GROUP_COL = 'material_type'
+MATERIAL_STRENGTH_COL = 'yield_strength_mpa'
+
+# Output file names
+REPORT_FILE = os.path.join(OUTPUT_DIR, 'lab4_statistical_report.md')
+PLOT_CONCRETE_DIST = os.path.join(OUTPUT_DIR, 'concrete_strength_distribution.png')
+PLOT_MATERIAL_COMPARE = os.path.join(OUTPUT_DIR, 'material_comparison_boxplot.png')
+PLOT_PROB_DISTS = os.path.join(OUTPUT_DIR, 'probability_distributions.png')
+PLOT_DIST_FITTING = os.path.join(OUTPUT_DIR, 'distribution_fitting.png')
+PLOT_DASHBOARD = os.path.join(OUTPUT_DIR, 'statistical_summary_dashboard.png')
+
+
+# --- 1. Data Loading ---
+
+def load_data(file_name):
+    """
+    Load dataset from the root-level datasets/ folder.
+    
+    Args:
+        file_name (str): The name of the CSV file (e.g., 'concrete_strength.csv')
+        
+    Returns:
+        pd.DataFrame: Loaded pandas DataFrame, or None if file not found.
+    """
+    file_path = os.path.join(DATA_DIR, file_name)
+    try:
+        data = pd.read_csv(file_path)
+        print(f"Successfully loaded '{file_name}'. Shape: {data.shape}")
+        # Basic preprocessing: handle missing values
+        if data.isnull().sum().sum() > 0:
+            print("Warning: Missing values detected. Filling with median.")
+            for col in data.select_dtypes(include=np.number).columns:
+                data[col] = data[col].fillna(data[col].median())
+        return data
+    except FileNotFoundError:
+        print(f"Error: File not found at '{file_path}'.")
+        print("Please ensure the 'datasets' folder is at the repository root.")
+        return None
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return None
+
+# --- 2. Descriptive Statistics ---
+
+def calculate_descriptive_stats(data, column='strength_mpa'):
+    """
+    Calculate all descriptive statistics for a given column.
+    
+    Args:
+        data (pd.DataFrame): The DataFrame containing the data.
+        column (str): The name of the column to analyze.
+        
+    Returns:
+        dict: A dictionary containing all calculated statistics.
+    """
+    if column not in data.columns:
+        print(f"Error: Column '{column}' not in DataFrame.")
+        return None
+        
+    series = data[column].dropna()
+    
+    stats_dict = {
+        'count': int(series.count()),
+        'mean': series.mean(),
+        'median': series.median(),
+        'mode': series.mode().iloc[0] if not series.mode().empty else np.nan,
+        'std_dev': series.std(),
+        'variance': series.var(),
+        'min': series.min(),
+        'max': series.max(),
+        'range': series.max() - series.min(),
+        'q1': series.quantile(0.25),
+        'q2_median': series.quantile(0.50),
+        'q3': series.quantile(0.75),
+        'iqr': series.quantile(0.75) - series.quantile(0.25),
+        'skewness': series.skew(),
+        'kurtosis': series.kurt()
+    }
+    return stats_dict
+
+def plot_distribution(data, column, title, save_path=None):
+    """
+    Create distribution plot (histogram/kde) with mean, median, and mode.
+    
+    Args:
+        data (pd.DataFrame): The DataFrame.
+        column (str): The column to plot.
+        title (str): The title for the plot.
+        save_path (str, optional): Path to save the figure.
+    """
+    plt.figure(figsize=(10, 6))
+    sns.histplot(data[column], kde=True, bins=20, stat="density",
+                 label=f'{column} Distribution')
+    
+    stats_dict = calculate_descriptive_stats(data, column)
+    
+    plt.axvline(stats_dict['mean'], color='red', linestyle='--', 
+                label=f"Mean: {stats_dict['mean']:.2f}")
+    plt.axvline(stats_dict['median'], color='green', linestyle='-', 
+                label=f"Median: {stats_dict['median']:.2f}")
+    plt.axvline(stats_dict['mode'], color='blue', linestyle=':', 
+                label=f"Mode: {stats_dict['mode']:.2f}")
+    
+    plt.title(title, fontsize=16)
+    plt.xlabel(column)
+    plt.ylabel('Density')
+    plt.legend()
+    
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved to '{save_path}'")
+    plt.close()
+
+# --- 3. Probability Distributions ---
+
+def fit_distribution(data, column, distribution_type='normal'):
+    """
+    Fit a probability distribution to data.
+    
+    Args:
+        data (pd.DataFrame): The DataFrame.
+        column (str): The column to fit.
+        distribution_type (str): Type of distribution (e.g., 'normal').
+        
+    Returns:
+        tuple: Fitted distribution parameters (e.g., mu, std for normal).
+    """
+    if distribution_type.lower() == 'normal':
+        # Fit a normal distribution
+        mu, std = norm.fit(data[column].dropna())
+        return (mu, std)
+    # Add other distributions as needed
+    else:
+        print(f"Fitting for '{distribution_type}' not implemented.")
+        return (None,)
+
+def plot_distribution_fitting(data, column, fitted_dist=None, save_path=None):
+    """
+    Visualize fitted distribution overlaid on data histogram.
+    
+    Args:
+        data (pd.DataFrame): The DataFrame.
+        column (str): The column to plot.
+        fitted_dist (tuple, optional): Parameters of the fitted distribution.
+        save_path (str, optional): Path to save the figure.
+    """
+    plt.figure(figsize=(10, 6))
+    series = data[column].dropna()
+    
+    # Plot histogram
+    sns.histplot(series, bins=20, stat='density', kde=False, 
+                 label='Actual Data Histogram')
+    
+    # Plot fitted distribution
+    if fitted_dist and len(fitted_dist) == 2:
+        mu, std = fitted_dist
+        xmin, xmax = plt.xlim()
+        x = np.linspace(xmin, xmax, 100)
+        p = norm.pdf(x, mu, std)
+        plt.plot(x, p, 'k', linewidth=2, 
+                 label=f'Fitted Normal (μ={mu:.2f}, σ={std:.2f})')
+        title = f'Fitted Normal Distribution vs. Actual Data ({column})'
+    else:
+        # Plot KDE if no fit is provided
+        sns.kdeplot(series, color='black', label='KDE of Actual Data')
+        title = f'Distribution of {column}'
+        
+    plt.title(title, fontsize=16)
+    plt.xlabel(column)
+    plt.ylabel('Density')
+    plt.legend()
+    
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved to '{save_path}'")
+    plt.close()
+
+# --- 4. Probability Calculations ---
+
+def calculate_probability_binomial(n, p, k, kind='exact'):
+    """
+    Calculate binomial probabilities.
+    
+    Args:
+        n (int): Number of trials.
+        p (float): Probability of success.
+        k (int): Number of successes.
+        kind (str): 'exact' (P(X=k)), 'cumulative' (P(X<=k)), 'survive' (P(X>k))
+    
+    Returns:
+        float: The calculated probability.
+    """
+    if kind == 'exact':
+        return binom.pmf(k, n, p)
+    elif kind == 'cumulative':
+        return binom.cdf(k, n, p)
+    elif kind == 'survive':
+        return 1.0 - binom.cdf(k, n, p) # P(X > k)
+    else:
+        return np.nan
+
+def calculate_probability_poisson(lambda_param, k, kind='exact'):
+    """
+    Calculate Poisson probabilities.
+    
+    Args:
+        lambda_param (float): Average rate (lambda).
+        k (int): Number of events.
+        kind (str): 'exact', 'cumulative' (P(X<=k)), 'survive' (P(X>k))
+    
+    Returns:
+        float: The calculated probability.
+    """
+    if kind == 'exact':
+        return poisson.pmf(k, lambda_param)
+    elif kind == 'cumulative':
+        return poisson.cdf(k, lambda_param)
+    elif kind == 'survive':
+        return 1.0 - poisson.cdf(k, lambda_param) # P(X > k)
+    else:
+        return np.nan
+
+def calculate_probability_normal(mean, std, x_lower=None, x_upper=None, percentile=None):
+    """
+    Calculate normal probabilities or percentiles.
+    
+    Args:
+        mean (float): Distribution mean.
+        std (float): Distribution standard deviation.
+        x_lower (float, optional): Lower bound (for P(X > x) or P(x1 < X < x2)).
+        x_upper (float, optional): Upper bound (for P(X < x) or P(x1 < X < x2)).
+        percentile (float, optional): Percentile to find (e.g., 0.95 for 95th).
+        
+    Returns:
+        float: Calculated probability or value.
+    """
+    if percentile:
+        return norm.ppf(percentile, loc=mean, scale=std)
+    
+    if x_lower is None and x_upper is not None: # P(X < x_upper)
+        return norm.cdf(x_upper, loc=mean, scale=std)
+    if x_lower is not None and x_upper is None: # P(X > x_lower)
+        return 1.0 - norm.cdf(x_lower, loc=mean, scale=std)
+    if x_lower is not None and x_upper is not None: # P(x_lower < X < x_upper)
+        return norm.cdf(x_upper, loc=mean, scale=std) - \
+               norm.cdf(x_lower, loc=mean, scale=std)
+    
+    return np.nan
+
+def calculate_probability_exponential(mean, x, kind='before'):
+    """
+    Calculate exponential probabilities.
+    Note: mean = 1/lambda. scipy.stats.expon uses 'scale' = 1/lambda = mean.
+    
+    Args:
+        mean (float): Mean time until failure (1/lambda).
+        x (float): Time value.
+        kind (str): 'before' (P(X < x)) or 'after' (P(X > x)).
+    
+    Returns:
+        float: Calculated probability.
+    """
+    scale = mean
+    if kind == 'before':
+        return expon.cdf(x, scale=scale)
+    elif kind == 'after':
+        return 1.0 - expon.cdf(x, scale=scale) # or expon.sf(x, scale=scale)
+    else:
+        return np.nan
+
+# --- 5. Bayes' Theorem ---
+
+def apply_bayes_theorem(prior, sensitivity, specificity):
+    """
+    Apply Bayes' theorem for a diagnostic test.
+    
+    Args:
+        prior (float): P(A) - Prior probability of condition (e.g., damage).
+        sensitivity (float): P(B|A) - Prob(Test+ | Damage).
+        specificity (float): P(not B | not A) - Prob(Test- | No Damage).
+        
+    Returns:
+        float: P(A|B) - Posterior probability (Prob(Damage | Test+)).
+    """
+    # P(B|not A) - False Positive Rate
+    p_b_given_not_a = 1.0 - specificity
+    
+    # P(not A)
+    p_not_a = 1.0 - prior
+    
+    # P(B) - Total probability of a positive test
+    # P(B) = P(B|A) * P(A) + P(B|not A) * P(not A)
+    p_b = (sensitivity * prior) + (p_b_given_not_a * p_not_a)
+    
+    if p_b == 0: return 0.0
+    
+    # P(A|B) = [P(B|A) * P(A)] / P(B)
+    posterior = (sensitivity * prior) / p_b
+    
+    return posterior
+
+# --- 6. Comparative Visualization ---
+
+def plot_material_comparison(data, column, group_column, save_path=None):
+    """
+    Create comparative boxplot for material types.
+    
+    Args:
+        data (pd.DataFrame): The DataFrame.
+        column (str): The numeric column to plot (e.g., strength).
+        group_column (str): The categorical column for grouping.
+        save_path (str, optional): Path to save the figure.
+    """
+    plt.figure(figsize=(12, 7))
+    sns.boxplot(x=group_column, y=column, data=data)
+    sns.stripplot(x=group_column, y=column, data=data, 
+                  color="0.25", size=3, jitter=True)
+    
+    plt.title(f'Comparison of {column} by {group_column}', fontsize=16)
+    plt.xlabel(group_column)
+    plt.ylabel(column)
+    
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved to '{save_path}'")
+    plt.close()
+
+def plot_probability_distributions(save_path=None):
+    """
+    Plots examples of the four key probability distributions.
+    
+    Args:
+        save_path (str, optional): Path to save the figure.
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle('Key Probability Distributions', fontsize=18)
+    
+    # 1. Binomial (n=20, p=0.3)
+    n, p = 20, 0.3
+    x_binom = np.arange(binom.ppf(0.001, n, p), binom.ppf(0.999, n, p))
+    axes[0, 0].bar(x_binom, binom.pmf(x_binom, n, p), label='PMF', alpha=0.7)
+    axes[0, 0].set_title(f'Binomial PMF (n={n}, p={p})')
+    axes[0, 0].set_xlabel('Number of Successes')
+    axes[0, 0].set_ylabel('Probability')
+    
+    # 2. Poisson (lambda=5)
+    mu = 5
+    x_poisson = np.arange(poisson.ppf(0.001, mu), poisson.ppf(0.999, mu))
+    axes[0, 1].bar(x_poisson, poisson.pmf(x_poisson, mu), label='PMF', alpha=0.7)
+    axes[0, 1].set_title(f'Poisson PMF (λ={mu})')
+    axes[0, 1].set_xlabel('Number of Events')
+    axes[0, 1].set_ylabel('Probability')
+
+    # 3. Normal (mu=0, std=1)
+    x_norm = np.linspace(norm.ppf(0.001), norm.ppf(0.999), 100)
+    axes[1, 0].plot(x_norm, norm.pdf(x_norm), 'r-', lw=2, label='PDF')
+    axes[1, 0].set_title('Normal PDF (μ=0, σ=1)')
+    axes[1, 0].set_xlabel('Value')
+    axes[1, 0].set_ylabel('Density')
+    
+    # 4. Exponential (mean=5, scale=5)
+    mean_exp = 5
+    x_exp = np.linspace(expon.ppf(0.001, scale=mean_exp), 
+                        expon.ppf(0.99, scale=mean_exp), 100)
+    axes[1, 1].plot(x_exp, expon.pdf(x_exp, scale=mean_exp), 'r-', lw=2, label='PDF')
+    axes[1, 1].set_title(f'Exponential PDF (Mean={mean_exp})')
+    axes[1, 1].set_xlabel('Time')
+    axes[1, 1].set_ylabel('Density')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved to '{save_path}'")
+    plt.close()
+
+def plot_summary_dashboard(concrete_data, material_data, save_path=None):
+    """
+    Creates a 2x2 summary dashboard of key plots.
+    
+    Args:
+        concrete_data (pd.DataFrame): Concrete strength data.
+        material_data (pd.DataFrame): Material properties data.
+        save_path (str, optional): Path to save the figure.
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle('Statistical Summary Dashboard (Lab 4)', fontsize=20)
+    
+    # Plot 1: Concrete Strength Distribution (Fitted)
+    series = concrete_data['strength_mpa'].dropna()
+    sns.histplot(series, bins=20, stat='density', kde=False, 
+                 label='Actual Data', ax=axes[0, 0])
+    mu, std = norm.fit(series)
+    xmin, xmax = axes[0, 0].get_xlim()
+    x = np.linspace(xmin, xmax, 100)
+    p = norm.pdf(x, mu, std)
+    axes[0, 0].plot(x, p, 'k', linewidth=2, 
+                    label=f'Fitted Normal (μ={mu:.2f}, σ={std:.2f})')
+    axes[0, 0].set_title('Task 1: Concrete Strength Distribution')
+    axes[0, 0].legend()
+
+    # Plot 2: Material Comparison Boxplot
+    sns.boxplot(x=MATERIAL_GROUP_COL, y=MATERIAL_STRENGTH_COL, data=material_data, ax=axes[0, 1])
+    axes[0, 1].set_title('Task 2: Material Strength Comparison')
+    
+    # Plot 3: Poisson PMF Example
+    mu = 10 # From Task 3
+    x_poisson = np.arange(poisson.ppf(0.001, mu), poisson.ppf(0.999, mu))
+    axes[1, 0].bar(x_poisson, poisson.pmf(x_poisson, mu), label='PMF', alpha=0.7, color='purple')
+    axes[1, 0].set_title(f'Task 3: Poisson PMF (λ={mu}, Trucks/hr)')
+    axes[1, 0].set_xlabel('Number of Trucks')
+    axes[1, 0].set_ylabel('Probability')
+    
+    # Plot 4: Bayes' Theorem Visualization
+    prior = 0.05
+    posterior = 0.33
+    labels = ['Prior P(Damage)', 'Posterior P(Damage|Test+)']
+    values = [prior, posterior]
+    axes[1, 1].bar(labels, values, color=['skyblue', 'salmon'])
+    axes[1, 1].set_title('Task 4: Bayes\' Theorem - Probability of Damage')
+    axes[1, 1].set_ylabel('Probability')
+    axes[1, 1].set_ylim(0, 1.0)
+    for i, v in enumerate(values):
+        axes[1, 1].text(i, v + 0.02, f'{v:.2%}', ha='center', fontweight='bold')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved to '{save_path}'")
+    plt.close()
+
+
+# --- 7. Report Generation ---
+
+def create_statistical_report(stats_dict, prob_results, bayes_result, output_file):
+    """
+    Create a statistical report summarizing findings.
+    
+    Args:
+        stats_dict (dict): Dictionary from calculate_descriptive_stats.
+        prob_results (dict): Dictionary of probability calculation results.
+        bayes_result (float): Result from apply_bayes_theorem.
+        output_file (str): Path to save the report.
+    """
+    try:
+        with open(output_file, 'w') as f:
+            f.write("# Lab 4: Statistical Analysis Report\n\n")
+            
+            # --- Part 1: Descriptive Statistics (Concrete Strength) ---
+            f.write("## Part 1: Descriptive Statistics (Concrete Strength)\n\n")
+            f.write("### Five-Number Summary\n")
+            f.write(f"- **Min:** {stats_dict['min']:.2f} MPa\n")
+            f.write(f"- **Q1 (25th):** {stats_dict['q1']:.2f} MPa\n")
+            f.write(f"- **Median (50th):** {stats_dict['median']:.2f} MPa\n")
+            f.write(f"- **Q3 (75th):** {stats_dict['q3']:.2f} MPa\n")
+            f.write(f"- **Max:** {stats_dict['max']:.2f} MPa\n\n")
+            
+            f.write("### Measures of Central Tendency\n")
+            f.write(f"- **Mean:** {stats_dict['mean']:.2f} MPa\n")
+            f.write(f"- **Median:** {stats_dict['median']:.2f} MPa\n")
+            f.write(f"- **Mode:** {stats_dict['mode']:.2f} MPa\n\n")
+            
+            f.write("### Measures of Spread\n")
+            f.write(f"- **Standard Deviation:** {stats_dict['std_dev']:.2f} MPa\n")
+            f.write(f"- **Variance:** {stats_dict['variance']:.2f} MPa²\n")
+            f.write(f"- **Range:** {stats_dict['range']:.2f} MPa\n")
+            f.write(f"- **IQR:** {stats_dict['iqr']:.2f} MPa\n\n")
+
+            f.write("### Measures of Shape\n")
+            f.write(f"- **Skewness:** {stats_dict['skewness']:.3f}\n")
+            f.write(f"- **Kurtosis:** {stats_dict['kurtosis']:.3f}\n\n")
+            
+            f.write("**Interpretation:**\n")
+            f.write(f"The mean ({stats_dict['mean']:.2f}) and median ({stats_dict['median']:.2f}) "
+                    f"are very close, and the skewness ({stats_dict['skewness']:.3f}) "
+                    "is near zero, suggesting the data is **largely symmetric**. \n")
+            f.write(f"The kurtosis ({stats_dict['kurtosis']:.3f}) is also near zero, "
+                    "indicating a **mesokurtic** shape, similar to a normal distribution.\n\n")
+            
+            # --- Part 2: Probability Modeling ---
+            f.write("## Part 2: Probability Modeling Scenarios\n\n")
+            
+            f.write("### 1. Binomial (Quality Control)\n")
+            f.write(f"- P(Exactly 3 defects in 100): "
+                    f"{prob_results['binom_exact_3']:.4%}\n")
+            f.write(f"- P(5 or fewer defects in 100): "
+                    f"{prob_results['binom_cumul_5']:.4%}\n\n")
+            
+            f.write("### 2. Poisson (Bridge Load Events)\n")
+            f.write(f"- P(Exactly 8 trucks in 1 hr): "
+                    f"{prob_results['poisson_exact_8']:.4%}\n")
+            f.write(f"- P(More than 15 trucks in 1 hr): "
+                    f"{prob_results['poisson_survive_15']:.4%}\n\n")
+
+            f.write("### 3. Normal (Steel Yield Strength)\n")
+            f.write(f"- P(Strength > 280 MPa): "
+                    f"{prob_results['normal_gt_280']:.4%}\n")
+            f.write(f"- 95th Percentile Strength: "
+                    f"{prob_results['normal_95_pctl']:.2f} MPa\n\n")
+            
+            f.write("### 4. Exponential (Component Lifetime)\n")
+            f.write(f"- P(Failure < 500 hours): "
+                    f"{prob_results['exp_before_500']:.4%}\n")
+            f.write(f"- P(Survives > 1500 hours): "
+                    f"{prob_results['exp_after_1500']:.4%}\n\n")
+
+            # --- Part 3: Bayes' Theorem ---
+            f.write("## Part 3: Bayes' Theorem Application (Damage Detection)\n\n")
+            f.write("- **Prior Probability** (P(Damage)): 5.0%\n")
+            f.write("- **Sensitivity** (P(Test+ | Damage)): 95.0%\n")
+            f.write("- **Specificity** (P(Test- | No Damage)): 90.0%\n")
+            f.write(f"- **Posterior Probability (P(Damage | Test+)): {bayes_result:.4%}**\n\n")
+            
+            f.write("**Interpretation:**\n")
+            f.write("Even with a positive test, the probability of the structure "
+                    f"actually having damage is only **{bayes_result:.2%}**. \n")
+            f.write("This is because the base rate (prior) of damage is very low (5%). "
+                    "The false positive rate (10%) on the large population "
+                    "of non-damaged structures generates many false alarms.\n")
+
+        print(f"Report successfully saved to '{output_file}'")
+    except Exception as e:
+        print(f"Error writing report: {e}")
+
+
+# --- Main Execution ---
+
+def main():
+    """
+    Main execution function to run the full statistical analysis lab.
+    """
+    print("--- Starting Lab 4: Statistical Analysis ---")
+    
+    # --- Task 1: Concrete Strength Analysis ---
+    print("\n--- Task 1: Concrete Strength Analysis ---")
+    concrete_data = load_data(CONCRETE_FILE)
+    if concrete_data is None:
+        print("Failed to load concrete data. Aborting.")
+        return
+
+    # Calculate and print descriptive stats
+    concrete_stats = calculate_descriptive_stats(concrete_data, CONCRETE_STRENGTH_COL)
+    print("\nDescriptive Statistics (Concrete Strength):")
+    for key, val in concrete_stats.items():
+        print(f"- {key.replace('_', ' ').capitalize()}: {val:.3f}")
+    
+    # Plot distribution with mean/median/mode
+    plot_distribution(concrete_data, CONCRETE_STRENGTH_COL,
+                      'Concrete Strength Distribution (Task 1)',
+                      PLOT_CONCRETE_DIST)
+    
+    # --- Task 5: Distribution Fitting (Done here as it relates to Task 1) ---
+    print("\n--- Task 5: Distribution Fitting ---")
+    fitted_params = fit_distribution(concrete_data, CONCRETE_STRENGTH_COL, 'normal')
+    if fitted_params:
+        print(f"Fitted Normal Parameters: Mean (μ) = {fitted_params[0]:.2f}, "
+              f"Std (σ) = {fitted_params[1]:.2f}")
+        print("Comparing with sample stats:")
+        print(f"  Sample Mean: {concrete_stats['mean']:.2f}, "
+              f"Sample Std: {concrete_stats['std_dev']:.2f}")
+        
+        # Plot fitted distribution
+        plot_distribution_fitting(concrete_data, CONCRETE_STRENGTH_COL,
+                                  fitted_params, PLOT_DIST_FITTING)
+
+    # --- Task 2: Material Comparison ---
+    print("\n--- Task 2: Material Comparison ---")
+    material_data = load_data(MATERIAL_FILE)
+    if material_data is not None:
+        print("Calculating stats by material type...")
+        stats_by_material = material_data.groupby(MATERIAL_GROUP_COL)[MATERIAL_STRENGTH_COL] \
+                                         .agg(['mean', 'std', 'count'])
+        print(stats_by_material)
+        
+        # Plot comparative boxplots
+        plot_material_comparison(material_data, MATERIAL_STRENGTH_COL, MATERIAL_GROUP_COL,
+                                 PLOT_MATERIAL_COMPARE)
+    else:
+        print("Failed to load material data. Skipping Task 2.")
+
+    # --- Task 3: Probability Modeling ---
+    print("\n--- Task 3: Probability Modeling ---")
+    prob_results = {}
+    
+    # 1. Binomial
+    prob_results['binom_exact_3'] = calculate_probability_binomial(100, 0.05, 3, 'exact')
+    prob_results['binom_cumul_5'] = calculate_probability_binomial(100, 0.05, 5, 'cumulative')
+    print(f"Binomial P(X=3): {prob_results['binom_exact_3']:.4%}")
+    print(f"Binomial P(X<=5): {prob_results['binom_cumul_5']:.4%}")
+
+    # 2. Poisson
+    prob_results['poisson_exact_8'] = calculate_probability_poisson(10, 8, 'exact')
+    prob_results['poisson_survive_15'] = calculate_probability_poisson(10, 15, 'survive')
+    print(f"Poisson P(X=8 | λ=10): {prob_results['poisson_exact_8']:.4%}")
+    print(f"Poisson P(X>15 | λ=10): {prob_results['poisson_survive_15']:.4%}")
+    
+    # 3. Normal
+    prob_results['normal_gt_280'] = calculate_probability_normal(250, 15, x_lower=280)
+    prob_results['normal_95_pctl'] = calculate_probability_normal(250, 15, percentile=0.95)
+    print(f"Normal P(X>280 | μ=250, σ=15): {prob_results['normal_gt_280']:.4%}")
+    print(f"Normal 95th Percentile: {prob_results['normal_95_pctl']:.2f} MPa")
+    
+    # 4. Exponential
+    prob_results['exp_before_500'] = calculate_probability_exponential(1000, 500, 'before')
+    prob_results['exp_after_1500'] = calculate_probability_exponential(1000, 1500, 'after')
+    print(f"Exponential P(X<500 | mean=1000): {prob_results['exp_before_500']:.4%}")
+    print(f"Exponential P(X>1500 | mean=1000): {prob_results['exp_after_1500']:.4%}")
+
+    # --- Task 4: Bayes' Theorem Application ---
+    print("\n--- Task 4: Bayes' Theorem ---")
+    bayes_result = apply_bayes_theorem(prior=0.05, sensitivity=0.95, specificity=0.90)
+    print(f"Prior P(Damage) = 5.0%")
+    print(f"Posterior P(Damage | Test+) = {bayes_result:.4%}")
+
+    # --- Generate Additional Visualizations ---
+    print("\n--- Generating Additional Visualizations ---")
+    plot_probability_distributions(PLOT_PROB_DISTS)
+    
+    if concrete_data is not None and material_data is not None:
+        plot_summary_dashboard(concrete_data, material_data, PLOT_DASHBOARD)
+    else:
+        print("Skipping dashboard plot due to missing data.")
+        
+    # --- Generate Final Report ---
+    print("\n--- Generating Final Report ---")
+    create_statistical_report(concrete_stats, prob_results, bayes_result, REPORT_FILE)
+    
+    print("\n--- Lab 4 Complete ---")
+
+
+if __name__ == "__main__":
+    main()
